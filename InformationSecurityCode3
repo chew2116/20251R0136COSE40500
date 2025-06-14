@@ -1,0 +1,185 @@
+import subprocess
+import numpy as np
+
+# Function to interact with the ./problem2 executable
+def interact_with_problem2(ciphertext, runs):
+    try:
+        # Start the ./problem2 executable
+        process = subprocess.Popen(
+            ["./problem2"],
+            # Standard input for providing ciphertext
+            stdin=subprocess.PIPE,
+            # Standard output to capture results
+            stdout=subprocess.PIPE,
+            # Standard error to capture errors
+            stderr=subprocess.PIPE,
+            # Enable text mode for I/O
+            text=True
+        )
+
+        # To store decrypted messages and timing data
+        results = []
+
+        for _ in range(runs):
+            # Send the ciphertext(input) to the process
+            process.stdin.write(ciphertext + "\n")
+            # Ensure the input is processed immediately
+            process.stdin.flush()
+
+            # Initialize variables to capture output
+            decrypted_message = None
+            timing = None
+
+            # Read output lines until decrypted message and timing are found
+            while True:
+                # Read a single output line
+                line = process.stdout.readline().strip()
+                # Break if no more output
+                if not line:
+                    break
+
+                # Extract decrypted message if present
+                if "Decrypted message (hex):" in line:
+                    decrypted_message = line.split(":", 1)[1].strip()
+                # Extract decryption time if present
+                elif "Decryption Time:" in line:
+                    timing = float(line.split(":", 1)[1].strip())
+
+                # If both decrypted message and timing are found, save the result
+                if decrypted_message and timing:
+                    results.append((decrypted_message, timing))
+                    break
+
+        # Close the process after interaction
+        process.stdin.close()
+        process.wait()
+
+        # Return the list of results
+        return results
+
+    # Return None if executable is not found
+    except FileNotFoundError:
+        print("Error: ./problem2 executable not found. Make sure it is in the current directory.")
+        return None
+
+    # Return None for any unexpected errors
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        return None
+
+# Function to infer the private key using averaged timing data
+def infer_key_from_timing_averaged(timing_data, runs_per_bit, bits=63):
+    # Ensure sufficient timing data is available
+    if len(timing_data) < runs_per_bit * bits:
+        raise ValueError(f"Insufficient timing data. Expected at least {runs_per_bit * bits} samples.")
+
+    # Group timing data for each bit
+    groups = [timing_data[i::bits] for i in range(bits)]
+
+    # Infer key bits based on average timing
+    averaged_timings = [np.mean(group) for group in groups]
+    # Calculate overall average timing
+    overall_average = np.mean(averaged_timings)
+
+    # Classify bits: longer times -> 1, shorter times -> 0
+    key_bits = [(1 if avg > overall_average else 0) for avg in averaged_timings]
+
+    # Convert key bits into a binary string and then into an integer
+    key_binary = ''.join(map(str, key_bits))
+    private_key = int(key_binary, 2)
+    # Return the inferred private key
+    return private_key
+
+def montgomery_reduce(t, N, R):
+    # Perform the Montgomery reduction
+    m = (t * ((-pow(N, -1, R)) % R)) % R
+    u = (t + m * N) // R
+    if u >= N:
+        # Ensure result is in the correct range
+        return u - N
+    return u
+
+def montgomery_multiply(a, b, N, R):
+    # Multiply two numbers in Montgomery space
+    t = a * b
+    return montgomery_reduce(t, N, R)
+
+# Function to perform RSA decryption using Montgomery multiplication
+def montgomery_rsa_decrypt(ciphertext, private_key, N):
+    # Define R as the next power of 2 greater than N
+    # R = 2^(bit length of N + 1)
+    R = 1 << (N.bit_length() + 1)  
+
+    # Convert ciphertext to Montgomery form
+    C_mont = (ciphertext * R) % N
+
+    # Perform modular exponentiation using Montgomery multiplication
+    # 1 in Montgomery form
+    M_mont = R % N 
+    # Iterate over bits of d
+    for bit in reversed(bin(private_key)[2:]):  
+        # Square
+        M_mont = montgomery_multiply(M_mont, M_mont, N, R)
+        # Multiply if bit is 1
+        if bit == "1":
+            M_mont = montgomery_multiply(M_mont, C_mont, N, R)
+
+    # Convert back to standard representation
+    M = montgomery_reduce(M_mont, N, R)
+    # Return the decrypted plaintext
+    return M
+
+# Example usage
+if __name__ == "__main__":
+    # Input ciphertext in hexadecimal
+    ciphertext_hex = input("Enter input: ")  
+    # Number of times to run with the same ciphertext
+    runs = 1000  
+    # Samples per bit for better reliability
+    runs_per_bit = 1000  
+    # Expected key length in bits
+    bits = 63  
+    # RSA Modulus
+    N = 6459327652408515587  
+
+    # Step 1: Collect timing data
+    print("Running ./problem2 to collect timing data...")
+    results = interact_with_problem2(ciphertext_hex, runs)
+
+    # Print results if successful
+    if results:
+        for i, (decrypted_message, timing) in enumerate(results, start=1):
+            print(f"Run {i}:")
+            print(f"  Decryption Time: {timing}")
+            print(f"  Decrypted Message: {decrypted_message}\n")
+    else:
+        print("Failed to interact with ./problem2.")
+
+    # Exit if data collection fails
+    if not results:
+        print("Failed to interact with ./problem2. Exiting.")
+        exit(1)
+
+    # Step 2: Extract timing data from results
+    timing_data = [timing for _, timing in results]
+
+    # Step 3: Infer the private key
+    try:
+        private_key = infer_key_from_timing_averaged(timing_data, runs // bits, bits)
+        print(f"\nInferred Private Key (Binary): {bin(private_key)}")
+        print(f"Inferred Private Key (Hex): {hex(private_key)}")
+    # Exit if key inference fails
+    except ValueError as e:
+        print(f"Error inferring private key: {e}")
+        exit(1)
+
+
+    # Step 4: Decrypt using Montgomery multiplication
+    try:
+        # Convert ciphertext to integer
+        ciphertext = int(ciphertext_hex, 16)  
+        decrypted_message = montgomery_rsa_decrypt(ciphertext, private_key, N)
+        print(f"\nDecrypted Message (Hex): {hex(decrypted_message)}")
+    # Print error if fails
+    except Exception as e:
+        print(f"Error during decryption: {e}")
