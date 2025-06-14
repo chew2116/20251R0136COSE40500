@@ -1,0 +1,59 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+void resizeImage(const unsigned char *inputImage, size_t inputSize, size_t newSize) {
+	
+	// Allocating memory for the new buffer
+	unsigned char *buffer = (unsigned char*)malloc(newSize);
+	
+	// Security patch added here
+	if (inputSize > newSize) { // Checking if the input size exceeds the new size
+		printf("Input size exceeds new size, resizing not possible\n");
+		return; // Early return if resizing is not possible due to size constraint
+	}
+	 
+	// Checking if memory allocation was successful
+	if (buffer == NULL) {
+		printf("Memory allocation failed\n");
+		return; // Early return in case of allocation failure
+	}
+	 
+	// Simulating an out-of-bounds write due to a bug
+	// Dangerous if inputSize > newSize,but the patch added could prevent this
+	memcpy(buffer, inputImage, inputSize); 
+	printf("Image resized successfully\n");
+	
+	// Freeing the allocated memory to avoid memory leak
+	free(buffer); 
+}
+ 
+int main() {
+	
+	// Buffer to store user input
+	char input[256];
+	size_t inputSize, newSize;
+	
+	printf("Enter your image data: ");
+	
+	// Reading input from the user
+	fgets(input, sizeof(input), stdin);
+	
+	// Calculating the size of the input
+	inputSize = strlen(input);
+	
+	if (input[inputSize - 1] == '\n') { // Checking if the last character is a newline
+		input[inputSize - 1] = '\0'; // Removing newline character
+		inputSize--; // Adjusting size aftter removing newline
+	}
+	
+	printf("Enter the new size for the image buffer: ");
+	
+	// Reading the new buffer size from the user
+	scanf("%zu", &newSize);
+	
+	// Calling the function to resize the image
+	resizeImage((unsigned char *)input, inputSize, newSize);
+	
+	return 0;
+}
