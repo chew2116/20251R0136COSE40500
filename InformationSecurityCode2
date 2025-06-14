@@ -1,0 +1,142 @@
+import subprocess
+    
+def run():
+    try:
+        # Run the ./problem1 
+        process = subprocess.Popen(
+            ["./problem1"],
+            # Use stdin to allows sending input to the process
+            stdin=subprocess.PIPE,
+            # Use stdout to capture the process standard input
+            stdout=subprocess.PIPE, 
+            # Use stderr to capture the process standard error
+            stderr=subprocess.PIPE,
+            # To ensure input/output is treated as text
+            text=True
+        )
+
+        # Prompt the user for the ciphertext input
+        ciphertext = input("Enter the encrypted message as a hexadecimal value: ")
+
+        # Send the user input to the ./problem1 executable and capture the output
+        stdout, stderr = process.communicate(input=ciphertext)
+
+        # Check for errors during the process execution
+        if process.returncode != 0:
+            print(f"Error running ./problem1: {stderr}")
+            return None
+
+        # Return the captured standard output
+        return stdout
+
+    except FileNotFoundError:
+        # Print error when the ./problem1 executable is not found
+        print("Error: ./problem1 executable not found.")
+        return None
+
+def parse_timing_data(output):
+    timing_data = []
+    # Process each line of the output
+    for line in output.splitlines():
+        # Look for lines containing timing data
+        if line.strip().startswith("Bit"):
+            try:
+                # Extract the numeric timing value only
+                timing_value = float(line.split(":")[-1].strip())
+                timing_data.append(timing_value)
+            except ValueError:
+                # Handle invalid lines that cannot be converted to a number
+                print(f"Skipping invalid line: {line.strip()}")
+    return timing_data
+
+def threshold(timing_data):
+    # Calculate the mean of the timing values
+    mean_threshold = sum(timing_data) / len(timing_data)
+    # Create a threshold list of the same size as the timing data
+    return [mean_threshold] * len(timing_data)
+
+def classify_bits(timing_data, thresholds):
+    key_binary = ""
+    # Iterate over each timing value
+    for i, timing in enumerate(timing_data):
+        # Classify the bit based on whether the timing exceeds the threshold or not
+        key_binary += "1" if timing > thresholds[i] else "0"
+    # Return the binary representation of the private key
+    return key_binary
+
+def rsa_decrypt(ciphertext, d, n):
+    # Initialize the result of modular exponentiation
+    result = 1
+    # Reduce the ciphertext modulo n
+    c = ciphertext % n
+    # Convert d to binary for bit-wise processing
+    d_bits = bin(d)[2:]  
+
+    # Iterate over each bit in the private key
+    for bit in d_bits:
+        # Square the result
+        result = (result * result) % n  
+        if bit == "1":
+            # Multiply by ciphertext when bit is 1
+            result = (result * c) % n 
+    # Return the final decrypted plaintext         
+    return result
+
+def main():
+    # Run the ./problem1 executable and capture its output
+    problem_output = run()
+
+    # Exit if there is no output from the executable
+    if not problem_output:
+        print("No output from ./problem. Exiting.")
+        return
+
+    # Display the captured output from ./problem1
+    print(problem_output)
+
+    # Prompt the user to re-enter the ciphertext for further processing
+    ciphertext_hex = input("\nEncrypted message: ")
+
+    # Effective key size based on the problem statement
+    key_size = 57  
+
+    # Convert the ciphertext from hexadecimal to an integer
+    ciphertext = int(ciphertext_hex, 16)
+
+    # Parse the timing data from the output of ./problem1
+    timing_data = parse_timing_data(problem_output)
+
+    # Exit if no timing data is collected
+    if not timing_data:
+        print("No timing data collected. Exiting.")
+        return
+
+    # Calculate the mean thresholds for timing classification
+    thresholds = threshold(timing_data)
+
+    # Infer the private key from the timing data and thresholds
+    key_binary = classify_bits(timing_data, thresholds)
+    
+    # Convert binary to integer
+    private_key = int(key_binary, 2)  
+
+    # Output results
+    print(f"\nInferred Private Key (Binary): {key_binary}")
+    print(f"Inferred Private Key (Decimal): {private_key}")
+    print(f"Inferred Private Key (Hex): {hex(private_key)}")
+
+    # RSA Modulus
+    n = 139804740659022203
+
+    # Decrypt the ciphertext using the inferred private key to test
+    decrypted_message = rsa_decrypt(ciphertext, private_key, n)
+
+    # Convert the decrypted message to plaintext or display it in hexadecimal format
+    try:
+        plaintext = bytes.fromhex(hex(decrypted_message)[2:]).decode('utf-8')
+        print(f"\nDecrypted Message (Plaintext): {plaintext}")
+    except ValueError:
+        print(f"\nDecrypted Message (Hex): {hex(decrypted_message)[2:]}")
+
+if __name__ == "__main__":
+    main()
