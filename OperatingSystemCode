@@ -1,0 +1,100 @@
+/* 2024 Fall COSE341 Operating System*/
+/* Project 1*/
+/* Syuhada 2022320107*/
+
+#include <linux/syscalls.h> // Include the necessary header for system call definitions
+#include <linux/kernel.h> // Include kernel-related functions
+#include <linux/linkage.h> // Include linkage definitions for system calls
+
+#define MAXSIZE 500 // Define the maximum size of the stack
+
+int stack[MAXSIZE]; // Declare an array to hold the stack elements
+
+// I initialize stack top pointer to -1 to indicate that the stack is empty
+int top = -1;
+
+// Define the system call for pushing an element onto the stack
+SYSCALL_DEFINE1(os2024_push, int, a) {
+
+	// For loop counter
+        int i = 0;
+
+	// Check if the element already exists in the stack, if yes, return the value back
+        for(i = 0; i <= top; i++) {
+
+	   //If the curret element matches the input
+           if(stack[i] == a) {
+	      // return th element back since it already exists
+              return a;
+           }
+        }
+
+	// Log the push operation for display
+        printk(KERN_INFO "[System Call] os2024_push(); ---\n");
+
+	// Check if the stack is full
+	// If top points to the last index of the stack
+        if (top == MAXSIZE - 1) {
+	    // log an error message
+            printk(KERN_INFO "[ERROR] STACK IS FULL\n");
+	    // return -1 to indicate the stack is full
+	    return -1;
+        }
+
+	// Increment the top pointer and push element onto the stack
+	// Store the element at the new top position
+	stack[++top] = a;
+
+	// Log the current state of the stack
+	printk("Stack Top ---------------\n");
+	// Loop to prints elements from the top to the bottom
+	for(i = top; i >= 0; i--){
+	    // Print each element in the stack
+	    printk( "%d\n", stack[i]);
+	}
+
+	// Indicate the bottom of the stack
+	printk("Stack Bottom ------------\n");
+	// Return the pushed element
+	return a;
+}
+
+// Define the system call for popping an element from the stack
+SYSCALL_DEFINE0(os2024_pop) {
+
+	// For loop counter
+        int i = 0;
+
+	// Log the pop operation for display
+        printk(KERN_INFO "[System Call] os2024_pop : \n");
+
+	// If the top is -1, the stack is empty
+        if(top == -1) {
+	   // Log an error message
+           printk(KERN_INFO "[ERROR] STACK IS EMPTY\n");
+	   // Indicate the top of stack
+           printk("Stack Top -------------\n");
+	   // Indicate the bottom of the stack
+           printk("Stack Bottom ----------\n");
+	   // return -1 to indicate the stack is empty
+           return -1;
+        }
+
+	// Decrement the top pointer to pop the top element
+	// Update the top pointer to point to the new top
+        top = top - 1;
+
+	// Log the current state of the stack after popping
+        printk("Stack Top --------------\n");
+
+	// Loop to print elements in the stack after popping
+        for(i = top; i >= 0; i--) {
+	    // Print each element remaining in the stack
+            printk("Pop: %d\n", stack[i]);
+        }
+
+	// Indicate the bottom of the stack
+        printk("Stack Bottom ------------\n");
+	// Return the popped element
+        return stack[top + 1];
+}
