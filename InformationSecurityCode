@@ -1,0 +1,356 @@
+import csv
+
+def load_permutation_table(filename):
+    # Initialize an empty list to store the permutation table
+    perm_table = []
+
+    # Open the CSV file for reading
+    with open(filename, newline='') as csvfile:
+        reader = csv.reader(csvfile)
+
+        # Skip the header row
+        next(reader)  
+
+        # Iterate through each row in the CSV file
+        for row in reader:
+
+            # Check if the second column exists and contains a valid integer
+            if row and row[1].isdigit():  
+
+                # Convert the value to an integer and add it to the permutation table
+                perm_table.append(int(row[1])) 
+            else:
+                # Print a warning if a non-numeric or empty value is encountered
+                print(f"Warning: Non-numeric or empty value '{row[1]}' at row {reader.line_num}. Skipping.")
+
+    # Return the populated permutation table as a list of integers
+    return perm_table
+
+def load_sbox(filename):
+    # Initialize an empty dictionary to store the S-box mappings
+    sbox = {}
+
+    # Open the CSV file containing the S-box values
+    with open(filename, newline='') as csvfile:
+        reader = csv.reader(csvfile)
+        rows = list(reader)
+
+        # Skip the header row and start processing from the second row
+        for i, row in enumerate(rows[1:]): 
+            
+            # Skip first column if it's a label
+            for j, value in enumerate(row[1:]):  
+
+                # Calculate the input value using the row and column index
+                input_value = (i << 4) | j  
+                try:
+                    # Convert the value to an integer and store it in the S-box dictionary
+                    sbox[input_value] = int(value)  
+                except ValueError:
+                    # Print a warning if a non-numeric or empty value is encountered
+                    print(f"Warning: Skipping non-numeric or empty value '{value}' at row {i}, column {j}.")
+    
+    # Return the populated S-box as a dictionary
+    return sbox
+
+# Apply the S-box substitution by using combined row and column as the key
+def apply_sbox(input_bits, sbox):
+    # Extract the row and column from the 8-bit input
+    row = (input_bits >> 4) & 0xF  # Upper 4 bits for the row
+    col = input_bits & 0xF          # Lower 4 bits for the column
+    input_value = (row << 4) | col  # Combine row and column into a single key
+    output_bits = sbox[input_value] # Use the combined key to look up in the S-box dictionary
+    return output_bits
+
+
+# Apply permutation to the binary string and return a proper binary string
+def apply_permutation(input_bits_bin, perm_table):
+
+    # Create a list of output bits by reordering input bits according to the permutation table
+    output_bits = [input_bits_bin[perm_table[i]] for i in range(len(perm_table))]
+
+    # Return the permuted bits as a binary string
+    return ''.join(output_bits)  
+
+
+# Example function to split 64-bit plaintext/ciphertext into 16-bit integer segments
+def split_plaintext(plaintext):
+    # Split the 64-bit integer into 4 segments of 16 bits each
+    segments = [
+        (plaintext >> 48) & 0xFFFF,  # Extract the first 16 bits
+        (plaintext >> 32) & 0xFFFF,  # Extract the second 16 bits
+        (plaintext >> 16) & 0xFFFF,  # Extract the third 16 bits
+        plaintext & 0xFFFF           # Extract the last 16 bits
+    ]
+    return segments
+
+# Function to multiply two values modulo 2^16
+def mul_mod_2_16(val1, val2):
+    # Perform multiplication modulo 2^16 and return the result
+    return (val1 * val2) % (2**16)
+
+
+# Reverse modular addition
+def reverse_mod_addition(ciphertext_segment, subkey, mod=2**16):
+    # Perform subtraction modulo 2^16 and return the result
+    return (ciphertext_segment - subkey) % mod
+
+
+# Convert hex to binary and pad with leading zeros
+def hex_to_bin(plaintext, bit_length=64):
+    return bin(plaintext)[2:].zfill(bit_length)
+
+
+# Convert binary back to hex
+def bin_to_hex(bin_str):
+    return hex(int(bin_str, 2))
+
+
+# XOR operation
+def xor(val1, val2):
+    return val1 ^ val2
+
+
+# Function to compute Subkey 1 and Subkey 3 for all pairs without using modular inverse
+def find_subkeys1_3(plaintexts, ciphertexts):
+
+    # Extracting the initial 16-bit blocks from plaintexts and ciphertexts
+    plaintext_blocks = [(p >> 48) & 0xFFFF for p in plaintexts]
+    ciphertext_blocks = [(c >> 48) & 0xFFFF for c in ciphertexts]
+
+    # Try all possible Subkey1 values (from 0 to 65535)
+    for subkey1 in range(2**16):
+        consistent_subkey3 = None  # Keep track of consistent Subkey3
+        
+        # Loop through all plaintext-ciphertext pairs
+        for pt_segment, ct_segment in zip(plaintext_blocks, ciphertext_blocks):
+            # Step 1: Multiply the plaintext segment with Subkey 1 (mod 2^16)
+            intermediate_result = mul_mod_2_16(pt_segment, subkey1)
+
+            # Step 2: Calculate Subkey 3 by XORing with the ciphertext segment
+            subkey3 = ct_segment ^ intermediate_result
+
+            # Check if Subkey 3 is consistent across all pairs
+            if consistent_subkey3 is None:
+                consistent_subkey3 = subkey3  # First assignment of Subkey3
+            elif consistent_subkey3 != subkey3:
+                # If inconsistency found, break the loop and try the next Subkey 1
+                break
+        else:
+            # If all pairs are consistent with this Subkey1 and Subkey3, return the result
+            return subkey1, consistent_subkey3
+
+    return None, None  # Return None if no valid Subkey1 and Subkey3 are found
+
+# Function to apply the S-boxes correctly for Subkey 2 and Subkey 5
+def apply_sboxes_for_subkeys(combined_32_bits, sbox1, sbox2, sbox3, sbox4):
+    # Extract the individual 8-bit blocks from the combined 32-bit value
+    s1_input = (combined_32_bits >> 24) & 0xFF  # Get the first 8 bits
+    s2_input = (combined_32_bits >> 16) & 0xFF  # Get the next 8 bits
+    s3_input = (combined_32_bits >> 8) & 0xFF   # Get the next 8 bits
+    s4_input = combined_32_bits & 0xFF          # Get the last 8 bits
+
+    # Apply the S-boxes to each 8-bit input
+    s1_output = sbox1[s1_input]
+    s2_output = sbox2[s2_input]
+    s3_output = sbox3[s3_input]
+    s4_output = sbox4[s4_input] 
+
+    # Combine the S-box outputs to form a 32-bit result
+    sbox_output = (s1_output << 24) | (s2_output << 16) | (s3_output << 8) | s4_output
+
+    return sbox_output
+
+# Function to compute Subkey 2 and Subkey 5 with proper S-box, modulo addition, and XOR usage
+def compute_subkeys2_5(plaintext, ciphertext, sbox1, sbox2, sbox3, sbox4, perm_table, subkey1, subkey4):
+    # Extract 64-bit plaintext and ciphertext into 16-bit blocks
+    first_16_bits = (plaintext >> 48) & 0xFFFF
+    second_16_bits = (plaintext >> 32) & 0xFFFF
+    third_16_bits = (plaintext >> 16) & 0xFFFF
+    last_16_bits = plaintext & 0xFFFF
+
+    # Extract corresponding ciphertext blocks
+    first_16_bits_ct = (ciphertext >> 48) & 0xFFFF
+    second_16_bits_ct = (ciphertext >> 32) & 0xFFFF
+    third_16_bits_ct = (ciphertext >> 16) & 0xFFFF
+    last_16_bits_ct = ciphertext & 0xFFFF
+
+    ### Subkey 2 Process:
+    # Permute the second 16 bits of the plaintext
+    second_16_bits_bin = bin(second_16_bits)[2:].zfill(16)  # Convert to binary string
+    second_permuted_bin = apply_permutation(second_16_bits_bin, perm_table)  # Apply permutation
+    second_permuted = int(second_permuted_bin, 2)  # Convert binary string to an integer
+
+    # Apply S-box 1 to S-box 4 to the third and last 16 bits (combined 32-bit value)
+    combined_32_bits = (third_16_bits << 16) | last_16_bits
+    sbox_output = apply_sboxes_for_subkeys(combined_32_bits, sbox1, sbox2, sbox3, sbox4)
+
+    # Take the right 16 bits of the S-box combined output
+    right_16_bits_of_sbox = sbox_output & 0xFFFF
+
+    # XOR the permuted value with the right 16 bits of the S-box output
+    xor_with_sbox = xor(second_permuted, right_16_bits_of_sbox)
+
+    # Perform addition modulo 2^16 with the second ciphertext block
+    subkey2_initial = (xor_with_sbox + second_16_bits_ct) % (2**16)
+
+    # Final XOR with the second part of the ciphertext to compute the final Subkey 2
+    final_subkey2 = xor(subkey2_initial, second_16_bits_ct)
+
+    ### Subkey 5 Process:
+    # First 16 bits multiplied by Subkey 1
+    first_mult_subkey1 = mul_mod_2_16(first_16_bits, subkey1)
+
+    # XOR with the third 16-bit block and Subkey 4
+    xor_with_subkey4 = xor(xor(first_mult_subkey1, third_16_bits), subkey4)
+
+    # Apply S-box 1 and S-box 2 to the result of XOR with Subkey 4
+    sbox1_input_5 = (xor_with_subkey4 >> 8) & 0xFF  # Upper 8 bits for S-box 1
+    sbox2_input_5 = xor_with_subkey4 & 0xFF         # Lower 8 bits for S-box 2
+
+    sbox1_output_5 = apply_sbox(sbox1_input_5, sbox1)
+    sbox2_output_5 = apply_sbox(sbox2_input_5, sbox2)
+
+    # Combine the S-box outputs for Subkey 5 (16-bit result)
+    sbox_combined_5 = (sbox1_output_5 << 8) | sbox2_output_5
+
+    # Apply permutation to the combined S-box result before XOR
+    sbox_combined_5_bin = bin(sbox_combined_5)[2:].zfill(16)  # Convert to binary string
+    sbox_permuted_bin = apply_permutation(sbox_combined_5_bin, perm_table)  # Apply permutation
+    sbox_permuted = int(sbox_permuted_bin, 2)  # Convert back to integer
+
+    # Perform addition modulo 2^16 with the third ciphertext block
+    subkey5_initial = (sbox_permuted + third_16_bits_ct) % (2**16)
+
+    # Final XOR with the third part of the ciphertext to compute the final Subkey 5
+    final_subkey5 = xor(subkey5_initial, third_16_bits_ct)
+
+    return final_subkey2, final_subkey5
+
+# Function to find subkey4 by performing a 2-bit right shift on subkey3
+def find_subkey4(subkey3):
+    # Perform a 2-bit right shift on the 16-bit value of subkey3
+    subkey4 = (subkey3 >> 2) & 0xFFFF  # Shift right by 2 bits and mask to keep it 16 bits
+    return subkey4
+
+
+# Function to find Subkey 6 using 8-bit blocks from the combined 32-bit segment
+def find_subkey6(plaintext, ciphertext, sbox1, sbox2, sbox3, sbox4):
+    # Convert the plaintext to binary (64 bits)
+    binary_plaintext = hex_to_bin(plaintext)
+
+    # Extract the third and last 16 bits (16+16 bits)
+    third_16_bits_bin = binary_plaintext[32:48]  # Third 16 bits (in binary)
+    last_16_bits_bin = binary_plaintext[48:64]   # Last 16 bits (in binary)
+
+    # Combine these two binary segments to form 32 bits (in binary)
+    combined_32_bits_bin = third_16_bits_bin + last_16_bits_bin
+
+    # Convert the combined binary string back to hex for easier manipulation
+    combined_32_bits_hex = bin_to_hex(combined_32_bits_bin)
+
+    # Convert back to integer for S-box processing
+    combined_32_bits = int(combined_32_bits_hex, 16)
+
+    # Extract the individual 8-bit blocks from the combined 32-bit value
+    s1_input = (combined_32_bits >> 24) & 0xFF  # Get the first 8 bits (0x24)
+    s2_input = (combined_32_bits >> 16) & 0xFF  # Get the next 8 bits (0x56)
+    s3_input = (combined_32_bits >> 8) & 0xFF   # Get the next 8 bits (0x05)
+    s4_input = combined_32_bits & 0xFF          # Get the last 8 bits (0x0b)
+
+    # Apply the S-boxes to each 8-bit input
+    s1_output = sbox1[s1_input]
+    s2_output = sbox2[s2_input]
+    s3_output = sbox3[s3_input]
+    s4_output = sbox4[s4_input]
+
+    # Combine the S-box outputs to form a 32-bit result
+    sbox_output = (s1_output << 24) | (s2_output << 16) | (s3_output << 8) | s4_output
+
+    # Extract the last 32 bits from the ciphertext
+    ciphertext_last_32_bits = ciphertext & 0xFFFFFFFF
+
+    # Calculate Subkey 6 by XORing the last 32 bits of the ciphertext with the S-box result
+    subkey6 = ciphertext_last_32_bits ^ sbox_output
+
+    return subkey6
+
+
+def main():
+    # Load necessary files
+    perm_table = load_permutation_table("permutation.csv")
+    
+    # Load each S-box individually
+    sbox1 = load_sbox("s_box_1.csv")
+    sbox2 = load_sbox("s_box_2.csv")
+    sbox3 = load_sbox("s_box_3.csv")
+    sbox4 = load_sbox("s_box_4.csv")
+
+    # Example usage (make sure to define the necessary functions and inputs first)
+    # Given plaintext-ciphertext pairs
+    plaintexts = [
+        0xf9d062082456050b,
+        0x7092fb542ee18ac3,
+        0xdd600212d1e83384,
+        0xb5438b700072ee1d
+    ]
+
+    ciphertexts = [
+        0xc858f63425f50c2e,
+        0x59c0fa662d2e161c,
+        0x91187fa91caa99cd,
+        0xdafc53d022e7d0ab
+    ]
+
+    # Find the subkeys
+    subkey1, subkey3 = find_subkeys1_3(plaintexts, ciphertexts)
+
+    # Output the results
+    if subkey1 is not None and subkey3 is not None:
+        print(f"Subkey 1 found: {hex(subkey1)}")
+        print(f"Subkey 3 found: {hex(subkey3)}")
+    else:
+        print("No matching Subkey 1 and Subkey 3 found.")
+
+    # Generate Subkey 4 from Subkey 3
+    subkey4 = find_subkey4(subkey3)
+    print(f"Subkey 4 found: 0x{subkey4:04X}")
+
+    # Lists to store subkey 2 and subkey 5 for each pair
+    subkey2_list = []
+    subkey5_list = []
+
+    # Compute Subkey 2 and Subkey 5 for each pair
+    for i, (pt, ct) in enumerate(zip(plaintexts, ciphertexts)):
+        subkey2, subkey5 = compute_subkeys2_5(pt, ct, sbox1, sbox2, sbox3, sbox4, perm_table, subkey1, subkey4)
+        subkey2_list.append((i+1, subkey2))  # Store pair number and Subkey 2
+        subkey5_list.append((i+1, subkey5))  # Store pair number and Subkey 5
+
+    # Print Subkey 2 results
+    print("Subkey 2:")
+    for pair_num, subkey2 in subkey2_list:
+        print(f"  Pair {pair_num}: {hex(subkey2)}")
+
+    # Print Subkey 5 results
+    print("\nSubkey 5:")
+    for pair_num, subkey5 in subkey5_list:
+        print(f"  Pair {pair_num}: {hex(subkey5)}")
+
+
+    # Find Subkey 6 for each plaintext- ciphertext pair
+    subkey6 = None
+    for i, (pt, ct) in enumerate(zip(plaintexts, ciphertexts)):
+        current_subkey6 = find_subkey6(pt, ct, sbox1, sbox2, sbox3, sbox4)
+        # print(f"Subkey 6 for pair {i+1}: {hex(current_subkey6)}")
+
+        # Check consistency of Subkey 6 across all pairs
+        if subkey6 is None:
+            subkey6 = current_subkey6
+        elif subkey6 != current_subkey6:
+            print(f"Inconsistent Subkey 6 found for pair {i+1}: {hex(current_subkey6)} (expected {hex(subkey6)})")
+            return
+
+    print(f"Subkey 6 found: {hex(subkey6)}")
+
+if __name__ == "__main__":
+    main()
