@@ -1,0 +1,124 @@
+#!/usr/bin/python
+
+import random
+import collections
+import math
+import sys
+from collections import Counter
+from util import *
+
+
+############################################################
+# Problem 1: hinge loss
+############################################################
+
+def problem_1a():
+    """
+    return a dictionary that contains the following words as keys:
+        so, touching, quite, impressive, not, boring
+    """
+    # BEGIN_YOUR_ANSWER (our solution is 1 lines of code, but don't worry if you deviate from this)
+    return {'so': 1, 'touching': 1, 'quite': 0, 'impressive': 0, 'not': -1, 'boring': -1}
+    # END_YOUR_ANSWER
+
+############################################################
+# Problem 2: binary classification
+############################################################
+
+############################################################
+# Problem 2a: feature extraction
+
+def extractWordFeatures(x):
+    """
+    Extract word features for a string x. Words are delimited by
+    whitespace characters only.
+    @param string x: 
+    @return dict: feature vector representation of x.
+    Example: "I am what I am" --> {'I': 2, 'am': 2, 'what': 1}
+    """
+    # BEGIN_YOUR_ANSWER (our solution is 6 lines of code, but don't worry if you deviate from this)
+    features = {}
+    for word in x.split():
+        if word in features:
+            features[word] += 1
+        else:
+            features[word] = 1
+    return features
+    # END_YOUR_ANSWER
+
+############################################################
+# Problem 2b: stochastic gradient descent
+
+def learnPredictor(trainExamples, testExamples, featureExtractor, numIters, eta):
+    '''
+    Given |trainExamples| and |testExamples| (each one is a list of (x,y)
+    pairs), a |featureExtractor| to apply to x, and the number of iterations to
+    train |numIters|, the step size |eta|, return the weight vector (sparse
+    feature vector) learned.
+
+    You should implement stochastic gradient descent.
+
+    Note:
+    1. only use the trainExamples for training!
+    You can call evaluatePredictor() on both trainExamples and testExamples
+    to see how you're doing as you learn after each iteration.
+    2. don't shuffle trainExamples and use them in the original order to update weights.
+    3. don't use any mini-batch whose size is more than 1
+    '''
+    weights = {}  # feature => weight
+
+    def sigmoid(n):
+        return 1 / (1 + math.exp(-n))
+
+    # BEGIN_YOUR_ANSWER (our solution is 14 lines of code, but don't worry if you deviate from this)
+    for iter in range(numIters):
+        for x, y in trainExamples:
+            features = featureExtractor(x)
+            n = dotProduct(weights, features)
+            y_prime = (y + 1) // 2
+            sig = sigmoid(n)
+            gradient_scalar = sig - y_prime
+            increment(weights, -eta * gradient_scalar, features)
+
+        train_error = evaluatePredictor(trainExamples, lambda x : 1 if dotProduct(featureExtractor(x), weights) > 0 else -1)
+        test_error = evaluatePredictor(testExamples, lambda x : 1 if dotProduct(featureExtractor(x), weights) > 0 else -1)
+        print(f"Iteration {iter + 1}: Train error = {train_error:.4f}, Test error = {test_error:.4f}")
+    # END_YOUR_ANSWER
+    return weights
+
+############################################################
+# Problem 2c: ngram features
+
+def extractNgramFeatures(x, n):
+    """
+    Extract n-gram features for a string x
+    
+    @param string x, int n: 
+    @return dict: feature vector representation of x. (key: n consecutive word (string) / value: occurrence)
+    
+    For example:
+    >>> extractNgramFeatures("I am what I am", 2)
+    {'I am': 2, 'am what': 1, 'what I': 1}
+
+    Note:
+    There should be a space between words and NO spaces at the beginning and end of the key
+    -> "I am" (O) " I am" (X) "I am " (X) "Iam" (X)
+
+    Another example
+    >>> extractNgramFeatures("I am what I am what I am", 3)
+    {'I am what': 2, 'am what I': 2, 'what I am': 2}
+    """
+    # BEGIN_YOUR_ANSWER (our solution is 12 lines of code, but don't worry if you deviate from this)
+    phi = {}
+    words = x.split()
+    length = len(words)
+    if n <= 0 or n > length:
+        return phi
+    for i in range(length - n + 1):
+        ngram = ' '.join(words[i:i + n])
+        if ngram in phi:
+            phi[ngram] += 1
+        else:
+            phi[ngram] = 1
+    # END_YOUR_ANSWER
+    return phi
